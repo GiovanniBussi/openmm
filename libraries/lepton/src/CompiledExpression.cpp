@@ -32,6 +32,9 @@
 #include "lepton/CompiledExpression.h"
 #include "lepton/Operation.h"
 #include "lepton/ParsedExpression.h"
+#ifdef LEPTON_USE_JIT
+    #include "asmjit.h"
+#endif
 #include <utility>
 
 using namespace Lepton;
@@ -39,6 +42,19 @@ using namespace std;
 #ifdef LEPTON_USE_JIT
     using namespace asmjit;
 #endif
+
+AsmJitRuntimePtr::AsmJitRuntimePtr()
+#ifdef LEPTON_USE_JIT
+  : ptr(new asmjit::JitRuntime)
+#endif
+{}
+
+AsmJitRuntimePtr::~AsmJitRuntimePtr()
+{
+#ifdef LEPTON_USE_JIT
+  delete static_cast<asmjit::JitRuntime*>(ptr);
+#endif
+}
 
 CompiledExpression::CompiledExpression() : jitCode(NULL) {
 }
@@ -192,8 +208,11 @@ static double evaluateOperation(Operation* op, double* args) {
     return op->evaluate(args, dummyVariables);
 }
 
+static void generateSingleArgCall(X86Compiler& c, X86Xmm& dest, X86Xmm& arg, double (*function)(double));
+
 void CompiledExpression::generateJitCode() {
     CodeHolder code;
+    auto & runtime(*static_cast<asmjit::JitRuntime*>(runtimeptr.get()));
     code.init(runtime.getCodeInfo());
     X86Assembler a(&code);
     X86Compiler c(&code);
@@ -398,7 +417,7 @@ void CompiledExpression::generateJitCode() {
     jitCode = (void*) func0;
 }
 
-void CompiledExpression::generateSingleArgCall(X86Compiler& c, X86Xmm& dest, X86Xmm& arg, double (*function)(double)) {
+void generateSingleArgCall(X86Compiler& c, X86Xmm& dest, X86Xmm& arg, double (*function)(double)) {
     X86Gp fn = c.newIntPtr();
     c.mov(fn, imm_ptr((void*) function));
     CCFuncCall* call = c.call(fn, FuncSignature1<double, double>(CallConv::kIdHost));
